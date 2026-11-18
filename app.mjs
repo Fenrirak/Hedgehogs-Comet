@@ -2,6 +2,7 @@ import {toEnglish,toRomaji} from './language.mjs';
 import {startEnhancements} from './enhancements.mjs';
 import {packs,parseVocabulary,parseSentences,chooseNext,reviewRating,createVariations,clamp,hasJapanese} from './core.mjs';
 import {importFile} from './importer.mjs';
+import {isMaterialLink,makeMaterialLink,readMaterialLink} from './sharing.mjs';
 const $=id=>document.getElementById(id), KEY='kotoba-club-v1';
 const node=(tag,className,text)=>{const e=document.createElement(tag);if(className)e.className=className;if(text!==undefined)e.textContent=text;return e;};
 let activeSwap=0;
@@ -11,7 +12,9 @@ let snapshotTime=Number(saved.updatedAt)||0,deleted=saved.deleted||{},lastPersis
 const materials=Array.isArray(saved.materials)?saved.materials.filter(x=>typeof x.id==='string'&&typeof x.name==='string'&&typeof x.text==='string').slice(0,50):[];
 let ratings=saved.ratings&&typeof saved.ratings==='object'&&!Array.isArray(saved.ratings)?saved.ratings:{};
 let source=packs.find(x=>x.id===saved.source)||materials.find(x=>x.id===saved.source)||packs[0];
-let mode='vocab',items=[],current=0,turn=0,running=false,paused=false,generation=0,cancelPending=null,sessionReads=0,view='vocab',feedbackGiven=false;
+let sharedSource=null;
+let mode='vocab',items=[],current=0,turn=0,running=false,paused=false,generation=0,cancelPending=null,sessionReads=0,view='vocab';
+let feedbackState='',respondToRating=null;
 let voices=[],previewRatings={},importBusy=false,editingId=null,attached=[],importedRatings=null,toastTimer;
 const settings=saved.settings||{};
 const settingsFields={speed:[.5,1.25,.85],delay:[0,20,3],gap:[0,20,3],repeats:[1,10,2]};
@@ -27,7 +30,9 @@ function applyState(state={}){
  restoring=true;try{
   stop();materials.splice(0,materials.length,...(Array.isArray(state.materials)?state.materials:[]).filter(x=>typeof x.id==='string'&&typeof x.text==='string'&&typeof x.name==='string'));
   ratings=state.ratings&&typeof state.ratings==='object'?state.ratings:{};deleted=state.deleted||{};snapshotTime=Number(state.updatedAt)||0;
-  source=packs.find(x=>x.id===state.source)||materials.find(x=>x.id===state.source)||packs[0];
+  if(!sharedSource||source!==sharedSource){
+    source=packs.find(x=>x.id===state.source)||materials.find(x=>x.id===state.source)||packs[0];
+  }
   for(const [id,[min,max,def]]of Object.entries(settingsFields))$(id).value=clamp(state.settings?.[id]??def,min,max,def);
   for(const id of ['loop','hints'])$(id).checked=state.settings?.[id]!==false;$('englishHints').checked=state.settings?.englishHints===true;
   selectedVoice=state.settings?.voice||'';$('voice').value='';setMode(state.mode==='speech'?'speech':'vocab');
@@ -53,7 +58,8 @@ function voiceOptions(){
 }
 function normaliseDue(){previewRatings={};for(const item of items){const r=ratings[item.ja];if(r&&typeof r==='object')previewRatings[item.ja]={...r,due:r.kind==='got'?Math.max(8,items.length*3):0};}}
 function setSource(next,{keepMode=true}={}){
-  stop();source=next;current=0;turn=0;sessionReads=0;items=mode==='vocab'?parseVocabulary(source.text):parseSentences(source.text);normaliseDue();feedbackGiven=false;
+  stop();source=next;current=0;turn=0;sessionReads=0;items=mode==='vocab'?parseVocabulary(source.text):parseSentences(source.text);normaliseDue();
+  $('saveSharedMaterial').hidden=source!==sharedSource;
   if(mode==='speech')$('paragraph').value=items.map(x=>x.ja).join('');
   $('sourceName').textContent=source.name;$('itemCount').textContent=`${items.length} ${mode==='vocab'?'words':'sentences'}`;render();renderDecks();renderWords();refreshMixer();persist();
 }
@@ -63,19 +69,43 @@ function render(){
   const item=items[current];$('practiceText').textContent=item?.ja||'日本語を追加しましょう';$('practiceText').classList.toggle('paragraph',mode==='speech');$('reading').textContent=item?.reading||'';$('meaning').textContent=item?.meaning||(item?'':'Add your Japanese material to begin.');
   $('position').textContent=items.length?`${String(current+1).padStart(2,'0')} / ${String(items.length).padStart(2,'0')}`:'00 / 00';
   $('modePill').textContent=mode==='vocab'?'YOUR LISTENING SPACE':'ONE FAMILIAR SENTENCE AT A TIME';
-  $('feedback').classList.toggle('hidden',mode!=='vocab');$('feedbackMessage').classList.toggle('hidden',mode!=='vocab');$('speechTools').classList.toggle('hidden',mode!=='speech');
-  $('got').disabled=$('forgot').disabled=!items.length;$('previous').disabled=$('next').disabled=!items.length;
+  $('practiceTurn').classList.toggle('speech-turn',mode==='speech');$('speechTools').classList.toggle('hidden',mode!=='speech');
+  $('previous').disabled=$('next').disabled=!items.length;
   $('reveal').classList.toggle('hidden',mode==='speech');updateHints();updatePlay();automaticHints();
 }
 function updateHints(){const visible=$('hints').checked;for(const id of ['reading'])$(id).classList.toggle('hint-hidden',!visible);$('meaning').classList.toggle('hint-hidden',!$('englishHints').checked);$('reveal').textContent=visible?'◉ Hide romaji':'◉ Show romaji';$('reveal').setAttribute('aria-pressed',String(visible));}
 function updatePlay(){
-  $('play').replaceChildren(node('span','',running?'Ⅱ':'▶'),document.createTextNode(running?'Pause':paused?'Continue listening':'Start listening'));
-  $('play').disabled=!voices.length||!items.length;$('stop').disabled=!running&&!paused;
+  if(feedbackState){
+    $('play').textContent=feedbackState==='prompt'?'Waiting for rating':'Rating saved';
+  }else{
+    const icon=node('span','',running?'Ⅱ':'▶');icon.setAttribute('aria-hidden','true');
+    $('play').replaceChildren(icon,document.createTextNode(running?'Pause':paused?'Continue listening':'Start listening'));
+  }
+  $('play').disabled=!voices.length||!items.length;$('play').setAttribute('aria-disabled',String(!!feedbackState||$('play').disabled));
+  $('resetPractice').disabled=!items.length;
 }
 function interrupt(){generation++;if(cancelPending){const fn=cancelPending;cancelPending=null;fn();}if('speechSynthesis'in window&&(speechSynthesis.speaking||speechSynthesis.pending))speechSynthesis.cancel();}
-function stop(){interrupt();running=false;paused=false;setStatus('Ready when you are');updatePlay();}
+function stop(){interrupt();running=false;paused=false;setFeedback('');setStatus('Ready when you are');}
 function pause(){interrupt();running=false;paused=true;setStatus('Paused · continue to replay this item');updatePlay();}
 function wait(ms,token){return new Promise(resolve=>{if(token!==generation){resolve(false);return;}const timer=setTimeout(()=>{if(cancelPending===cancel)cancelPending=null;resolve(token===generation);},ms);const cancel=()=>{clearTimeout(timer);resolve(false);};cancelPending=cancel;});}
+function setFeedback(state){
+  feedbackState=state;
+  $('practiceTurn').dataset.feedback=state;
+  $('feedback').inert=state!=='prompt';
+  $('flashcardFront').inert=state==='got'||state==='forgot';
+  if(!state)$('ratingStatus').textContent='';
+  updatePlay();
+}
+function waitForRating(){
+  return new Promise(resolve=>{
+    const finish=kind=>{respondToRating=null;cancelPending=null;resolve(kind);};
+    respondToRating=finish;
+    cancelPending=()=>finish(null);
+    setFeedback('prompt');
+    setStatus('Your turn · rate this word');
+    if(document.activeElement===$('play'))$('forgot').focus({preventScroll:true});
+  });
+}
 function say(text,token){
   return new Promise((resolve,reject)=>{
     if(token!==generation){resolve(false);return;}
@@ -89,6 +119,7 @@ function say(text,token){
 }
 let activeRepeat=1;
 async function start(){
+  if(feedbackState)return;
   if(running){pause();return;}
   if(!voices.length){toast('Install or select a Japanese voice before listening.');return;}
   if(!items.length){openEditor('type');return;}
@@ -105,37 +136,116 @@ async function start(){
         if(activeRepeat<Number($('repeats').value)){setStatus('Your turn · say it out loud');if(!await wait(Number($('gap').value)*1000,token))return;}
       }
       sessionReads++;
-      if(!$('loop').checked&&sessionReads>=items.length){running=false;paused=false;setStatus('Lovely work · practice complete');updatePlay();return;}
-      setStatus(mode==='vocab'?'Your turn · Got it or Forgot?':'Your turn · try the sentence aloud');if(!await wait(Number($('gap').value)*1000,token))return;
-      advance($('loop').checked);await wait(30,token);
+      if(mode==='vocab'){
+        const kind=await waitForRating();
+        if(!kind||token!==generation)return;
+        const ja=items[current].ja;
+        ratings[ja]=reviewRating(ratings[ja],kind,turn,items.length);previewRatings[ja]=ratings[ja];
+        renderWords();persist();
+        const hadRatingFocus=$('flashcardFront').contains(document.activeElement);
+        $('ratingIcon').textContent=kind==='got'?'✓':'↺';
+        $('ratingDetail').textContent=kind==='got'?'Marked as familiar':'Marked to revisit';
+        $('ratingStatus').textContent='Got it! '+$('ratingDetail').textContent+'.';
+        setFeedback(kind);
+        if(hadRatingFocus)$('play').focus({preventScroll:true});
+        if(!await wait(Math.max(700,Number($('gap').value)*1000),token))return;
+        const complete=!$('loop').checked&&sessionReads>=items.length;
+        if(!complete){advance($('loop').checked);setStatus('Next word');}
+        setFeedback('');
+        if(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches&&!await wait(280,token))return;
+        if(complete){completePractice();return;}
+      }else{
+        if(!$('loop').checked&&sessionReads>=items.length){completePractice();return;}
+        setStatus('Your turn · try the sentence aloud');if(!await wait(Number($('gap').value)*1000,token))return;
+        advance();if(!await wait(30,token))return;
+      }
     }
   }catch(error){if(token===generation){stop();setStatus('Audio needs a little attention');toast(error.message);}}
 }
+function completePractice(){running=false;paused=false;setStatus('Lovely work · practice complete');updatePlay();}
 function advance(adaptive=false){
   if(!items.length)return;
-  if(!feedbackGiven&&mode==='vocab'){const previous=previewRatings[items[current].ja];previewRatings[items[current].ja]=reviewRating(previous,previous?.kind||'unrated',turn,items.length);}
-  turn++;current=adaptive&&mode==='vocab'?chooseNext(items,previewRatings,current,turn):(current+1)%items.length;feedbackGiven=false;render();renderWords();persist();
+  turn++;current=adaptive&&mode==='vocab'?chooseNext(items,previewRatings,current,turn):(current+1)%items.length;render();renderWords();persist();
 }
-function navigate(delta){if(!items.length)return;const was=running;stop();current=(current+delta+items.length)%items.length;feedbackGiven=false;render();renderWords();persist();if(was)start();}
-function rate(kind){if(mode!=='vocab'||!items[current])return;const ja=items[current].ja;ratings[ja]=reviewRating(ratings[ja],kind,turn,items.length);previewRatings[ja]=ratings[ja];feedbackGiven=true;$('feedbackMessage').textContent=kind==='got'?'✓ Got it. This word will return much less often.':'↺ Saved. This word will return after another word.';renderWords();persist();}
+function navigate(delta){if(!items.length)return;const was=running;stop();current=(current+delta+items.length)%items.length;render();renderWords();persist();if(was)start();}
+function resetPractice(){
+  stop();current=0;turn=0;sessionReads=0;normaliseDue();
+  render();renderWords();persist();
+  setStatus('Practice reset · back to the first item');
+}
 function renderWords(){
   const q=$('wordSearch').value.toLowerCase();const list=$('wordList');list.replaceChildren();
   items.forEach((item,i)=>{if(!`${item.ja} ${item.reading} ${item.meaning}`.toLowerCase().includes(q))return;
     const row=node('div','word-row'+(i===current?' current':''));const rating=ratings[item.ja]?.kind;
     row.append(node('span','word-index',String(i+1).padStart(2,'0')),node('span','word-ja',item.ja),node('span','word-hint',$('hints').checked?item.reading:''),node('span','word-rating'+(rating==='forgot'?' forgot':''),rating==='got'?'✓ Familiar':rating==='forgot'?'↺ Revisiting':'New to you'));
-    row.querySelector('.word-ja').lang='ja';const b=node('button','word-play','▶');b.setAttribute('aria-label',`Listen to ${item.ja}`);b.onclick=()=>{stop();current=i;render();renderWords();start();};row.append(b);list.append(row);
+    row.querySelector('.word-ja').lang='ja';const b=node('button','word-play','▶');b.setAttribute('aria-label',`Listen to ${item.ja}`);b.onclick=()=>{
+      stop();current=i;render();renderWords();
+      $('practiceTurn').closest('.practice-card').scrollIntoView?.({block:'nearest'});
+      $('play').focus({preventScroll:true});start();
+    };row.append(b);list.append(row);
   });
   if(!list.children.length)list.append(node('div','empty-state','No matching words. Try another search.'));
 }
 function renderDecks(){
-  $('decks').replaceChildren(...packs.map(pack=>{const b=node('button','deck'+(source.id===pack.id?' selected':''));b.append(node('span','deck-level','BEGINNER · はじめて'),node('span','deck-illustration',pack.art.length>3?'こ':pack.art),node('h3','',pack.short),node('p','',pack.subtitle),node('span','deck-arrow','↗'));b.setAttribute('aria-pressed',String(source.id===pack.id));b.onclick=()=>{setSource(pack);$('wordSearch').value='';renderWords();toast(`${pack.short} is ready. Your listening settings stay with you.`);};return b;}));
+  $('decks').replaceChildren(...packs.map(pack=>{const b=node('button','deck'+(source.id===pack.id?' selected':''));b.append(node('span','deck-illustration',pack.art.length>3?'こ':pack.art),node('h3','',pack.short),node('p','',pack.subtitle),node('span','deck-arrow','↗'));b.setAttribute('aria-pressed',String(source.id===pack.id));b.onclick=()=>{setSource(pack);$('wordSearch').value='';renderWords();toast(`${pack.short} is ready. Your listening settings stay with you.`);};return b;}));
 }
 function showView(next){stop();view=next;const studio=['vocab','speech'].includes(next);$('studioView').classList.toggle('hidden',!studio);$('materialsView').classList.toggle('hidden',next!=='materials');$('guideView').classList.toggle('hidden',next!=='guide');document.querySelectorAll('.nav').forEach(b=>b.classList.toggle('active',b.dataset.view===(studio?'vocab':next)));if(next==='materials')renderMaterials();}
-function setMode(next){const sentenceDraft=$('paragraph').value;stop();mode=next;document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.mode===next)));$('feedbackMessage').textContent='Forgotten words return sooner. Familiar ones still come around.';setSource(source);if(next==='speech'&&sentenceDraft)$('paragraph').value=sentenceDraft;if(next==='speech'&&!$('swapRows').children.length)addSwap();refreshMixer();}
+function setMode(next){const sentenceDraft=$('paragraph').value;stop();mode=next;document.querySelectorAll('[data-mode]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.mode===next)));setSource(source);if(next==='speech'&&sentenceDraft)$('paragraph').value=sentenceDraft;if(next==='speech'&&!$('swapRows').children.length)addSwap();refreshMixer();}
 function renderMaterials(){
   $('materialCount').textContent=String(materials.length);const list=$('materialsList');list.replaceChildren();
   if(!materials.length){const e=node('div','empty-state');e.append(node('p','','Your classroom belongs here.'),node('p','small','Add your first notes, vocabulary list or paragraph to make it yours.'));list.append(e);}
-  for(const material of materials){const card=node('article','material-card');const info=node('div');info.append(node('h3','',material.name),node('p','',`${parseVocabulary(material.text).length} items · saved in this browser`));const actions=node('div','material-actions');const use=node('button','secondary-button','Practise ↗');use.onclick=()=>{showView('vocab');setSource(material);};const edit=node('button','text-button','Edit');edit.onclick=()=>openEditor('type',material);const del=node('button','text-button danger','Remove');del.onclick=()=>{const index=materials.indexOf(material);deleted[material.id]=Date.now();materials.splice(index,1);if(source.id===material.id)setSource(packs[0]);renderMaterials();persist();toast('Material removed from this browser.');};actions.append(use,edit,del);card.append(info,actions);list.append(card);}
+  for(const material of materials){const card=node('article','material-card');const info=node('div');info.append(node('h3','',material.name),node('p','',`${parseVocabulary(material.text).length} items · saved in this browser`));const actions=node('div','material-actions');const use=node('button','secondary-button','Practise ↗');use.onclick=()=>{showView('vocab');setSource(material);};const edit=node('button','text-button','Edit');edit.onclick=()=>openEditor('type',material);const share=node('button','text-button','Share');share.onclick=()=>openShare(material);const del=node('button','text-button danger','Remove');del.onclick=()=>{const index=materials.indexOf(material);deleted[material.id]=Date.now();materials.splice(index,1);if(source.id===material.id)setSource(packs[0]);renderMaterials();persist();toast('Material removed from this browser.');};actions.append(use,edit,share,del);card.append(info,actions);list.append(card);}
+}
+function downloadPractice(data,filename) {
+  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));
+  const link=node('a');link.href=url;link.download=filename;link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+let shareRequest=0;
+async function openShare(material) {
+  const request=++shareRequest;
+  const pageUrl=document.querySelector('link[rel="canonical"]').href;
+  $('shareMaterialTitle').textContent=material.name;
+  $('shareLink').value='';
+  $('copyShareLink').disabled=true;
+  $('shareMessage').textContent='Preparing the link…';
+  $('shareDialog').showModal();
+  try{
+    const url=await makeMaterialLink(material,pageUrl);
+    if(request!==shareRequest)return;
+    $('shareLink').value=url;
+    $('copyShareLink').disabled=false;
+    $('shareMessage').textContent='';
+  }catch{
+    if(request===shareRequest)$('shareMessage').textContent='The link could not be prepared. Close this window and try again.';
+  }
+}
+async function loadSharedMaterial() {
+  const hash=window.location?.hash||'';
+  if(!isMaterialLink(hash))return;
+  try{
+    const incoming=await readMaterialLink(hash);
+    if(window.location.hash!==hash)return;
+    const existing=materials.find(item=>item.name===incoming.name&&item.text===incoming.text);
+    sharedSource=existing?null:{...incoming,id:crypto.randomUUID(),updatedAt:Date.now()};
+    source=existing||sharedSource;
+    showView('vocab');setMode('vocab');
+    toast('Shared material is ready to practise.');
+  }catch{
+    if(window.location.hash===hash)toast('This material link is incomplete or invalid. Ask your teacher for a new link.');
+  }
+}
+function saveSharedMaterial() {
+  if(!sharedSource||source!==sharedSource)return;
+  if(materials.length>=50){
+    toast('You have 50 practices. Remove one before saving this material.');
+    return;
+  }
+  materials.push(sharedSource);
+  sharedSource=null;
+  $('saveSharedMaterial').hidden=true;
+  renderMaterials();persist();
+  toast('Saved to My material.');
 }
 function setImportTab(tab){$('uploadArea').classList.toggle('hidden',tab==='type');$('uploadTab').classList.toggle('active',tab==='upload');$('typeTab').classList.toggle('active',tab==='type');}
 function openEditor(tab='upload',material=null){stop();editingId=material&&materials.includes(material)?material.id:null;attached=[];importedRatings=null;if(material){$('materialTitle').value=material.name;$('materialText').value=material.text;}$('importError').textContent='';$('importStatus').replaceChildren();$('files').value='';setImportTab(tab);$('importDialog').showModal();}
@@ -164,7 +274,7 @@ function saveMaterial(){
 }
 function exportCurrent(){
   const data={format:'kotoba-club-v1',name:$('sourceName').textContent,text:mode==='speech'?items.map(x=>x.ja).join('\n'):source.text,ratings:Object.fromEntries(parseVocabulary(source.text).map(x=>[x.ja,ratings[x.ja]]).filter(x=>x[1]))};
-  const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=node('a');a.href=url;a.download='hedgehogs-comet-practice.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Practice exported. Import the JSON file to restore it later.');
+  downloadPractice(data,'hedgehogs-comet-practice.json');toast('Practice exported. Import the JSON file to restore it later.');
 }
 function invalidateMixer(){if($('variations').children.length){$('variations').replaceChildren();$('variationMessage').textContent='Your sentence or choices changed. Preview again to see the new results.';}}
 function addSwap(from='',to=''){invalidateMixer();
@@ -182,7 +292,11 @@ function generate(){
 function updateSettings(){for(const [id,[min,max,def]]of Object.entries(settingsFields))$(id).value=clamp($(id).value,min,max,def);$('speedOut').textContent=`${Number($('speed').value).toFixed(2).replace(/0$/,'')}×`;$('delayOut').textContent=`${$('delay').value} sec`;$('gapOut').textContent=`${$('gap').value} sec`;$('repeatLabel').textContent=`Repeat each ${mode==='vocab'?'word':'sentence'} ${$('repeats').value}×`;updateHints();automaticHints();renderWords();persist();}
 document.querySelectorAll('.nav').forEach(b=>b.onclick=()=>showView(b.dataset.view));document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{setMode(b.dataset.mode);updateSettings();});
 document.querySelector('.brand').onclick=e=>{e.preventDefault();showView('vocab');};
-$('play').onclick=start;$('stop').onclick=stop;$('previous').onclick=()=>navigate(-1);$('next').onclick=()=>navigate(1);$('got').onclick=()=>rate('got');$('forgot').onclick=()=>rate('forgot');
+$('play').onclick=start;$('previous').onclick=()=>navigate(-1);$('next').onclick=()=>navigate(1);
+$('got').onclick=()=>respondToRating?.('got');$('forgot').onclick=()=>respondToRating?.('forgot');
+$('resetPractice').onclick=()=>$('resetDialog').showModal();
+$('cancelReset').onclick=()=>$('resetDialog').close();
+$('confirmReset').onclick=()=>{$('resetDialog').close();resetPractice();};
 $('reveal').onclick=()=>{$('hints').checked=!$('hints').checked;updateSettings();};
 for(const id of [...Object.keys(settingsFields),'hints','loop','englishHints','allowModelDownload'])$(id).addEventListener('input',updateSettings);
 $('voice').onchange=()=>{selectedVoice=voices[Number($('voice').value)]?.voiceURI||'';if(running)pause();persist();};
@@ -190,10 +304,24 @@ $('repeatMinus').onclick=()=>{$('repeats').value=Math.max(1,Number($('repeats').
 $('wordSearch').oninput=renderWords;for(const id of ['openImport','materialsImport'])$(id).onclick=()=>openEditor();$('openManual').onclick=()=>openEditor('type');$('editSource').onclick=()=>openEditor('type',source);
 $('closeDialog').onclick=()=>{if(importBusy){toast('Please wait for this import to finish.');return;}$('importDialog').close();};$('importDialog').addEventListener('cancel',e=>{if(importBusy)e.preventDefault();});
 $('uploadTab').onclick=()=>setImportTab('upload');$('typeTab').onclick=()=>{setImportTab('type');$('materialText').focus();};$('saveMaterial').onclick=saveMaterial;$('files').onchange=e=>readFiles(e.target.files);$('exportPractice').onclick=exportCurrent;
+$('copyShareLink').onclick=async()=>{
+  const field=$('shareLink');
+  try{await navigator.clipboard.writeText(field.value);$('shareMessage').textContent='Link copied.';}
+  catch{field.focus();field.select();$('shareMessage').textContent='Copy the selected link to share it.';}
+};
+$('closeShareDialog').onclick=()=>$('shareDialog').close();
+$('saveSharedMaterial').onclick=saveSharedMaterial;
+window.addEventListener('hashchange',loadSharedMaterial);
 for(const event of ['dragenter','dragover'])$('dropzone').addEventListener(event,e=>{e.preventDefault();$('dropzone').classList.add('dragover');});for(const event of ['dragleave','drop'])$('dropzone').addEventListener(event,e=>{e.preventDefault();$('dropzone').classList.remove('dragover');});$('dropzone').addEventListener('drop',e=>readFiles(e.dataTransfer.files));
 $('addSwap').onclick=()=>addSwap('','');$('generate').onclick=generate;$('paragraph').onchange=()=>{refreshMixer();persist();};$('wordBank').onchange=persist;
 $('useParagraph').onclick=()=>{const parsed=parseSentences($('paragraph').value);if(!parsed.length){toast('Add a Japanese paragraph first.');return;}stop();items=parsed;current=0;sessionReads=0;render();renderWords();$('itemCount').textContent=`${items.length} sentences`;$('sourceName').textContent='Your original paragraph';setStatus('Your paragraph is ready');persist();toast('Your paragraph is loaded. Press Start listening.');};
-document.addEventListener('keydown',e=>{if(['INPUT','TEXTAREA','SELECT','BUTTON'].includes(e.target.tagName)||e.target.isContentEditable||$('importDialog').open||!['vocab','speech'].includes(view))return;if(e.code==='Space'){e.preventDefault();start();}if(e.key==='1')rate('forgot');if(e.key==='2')rate('got');if(e.key==='ArrowRight'){e.preventDefault();navigate(1);}});
+document.addEventListener('keydown',e=>{
+  if(e.altKey||e.ctrlKey||e.metaKey||['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName)||e.target.isContentEditable||document.querySelector('dialog[open]')||!['vocab','speech'].includes(view))return;
+  if(respondToRating&&!e.repeat&&['1','2'].includes(e.key)){e.preventDefault();respondToRating(e.key==='1'?'forgot':'got');return;}
+  if(['BUTTON','A'].includes(e.target.tagName))return;
+  if(e.code==='Space'){e.preventDefault();start();}
+  if(e.key==='ArrowRight'){e.preventDefault();navigate(1);}
+});
 window.addEventListener('pagehide',stop);if('speechSynthesis'in window)speechSynthesis.addEventListener('voiceschanged',voiceOptions);
 
 function refreshReferenceWords(){
@@ -218,5 +346,6 @@ $('useSelection').onclick=()=>{const field=$('paragraph'),word=field.value.slice
 $('mixerExample').onclick=()=>{$('paragraph').value='わたしはりんごをたべます。';$('swapRows').replaceChildren();addSwap('りんご','ぱん, ばなな');refreshMixer();persist();$('variationMessage').textContent='Example ready: replace りんご with ぱん or ばなな. Choose Preview my new sentences.';};
 
 restoring=true;setSource(source);restoring=false;applyState(saved);voiceOptions();setTimeout(voiceOptions,1000);setTimeout(voiceOptions,3000);
+loadSharedMaterial();
 let draftTimer;for(const id of ['materialTitle','materialText','paragraph','wordBank','swapRows'])$(id).addEventListener('input',()=>{clearTimeout(draftTimer);draftTimer=setTimeout(persist,400);});
 startEnhancements({snapshot,apply:state=>{const merged=JSON.stringify(state);if(merged!==JSON.stringify(snapshot()))applyState(state);},save:persist,currentText:()=>mode==='speech'?$('paragraph').value:items[current]?.ja||'',changeAccount:uid=>{stop();activeStorageKey=uid?'kotoba-club-user-'+uid:KEY;try{return JSON.parse(localStorage.getItem(activeStorageKey)||'{}');}catch{return {};}}}).then(adapter=>{syncAdapter=adapter;});

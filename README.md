@@ -2,6 +2,10 @@
 
 Free Japanese revision for NZ beginners. GitHub Pages hosts the static website; optional Firebase Authentication and Firestore provide username/password accounts and private sync. No payment feature or paid translation API is included. Guest mode works before Firebase is configured.
 
+[Open Hedgehog’s Comet](https://fenrirak.github.io/Hedgehogs-Comet/index.html).
+
+Teachers can choose **Share** on a saved practice in **My material** and send the link to students. The link opens directly in the Practice Studio and contains the practice title and reviewed text. Students can save their own copy. Create a fresh link after editing a practice.
+
 ## Project layout
 
 - The project root contains the website pages, styles, scripts and workers. `vendor/` contains their third-party runtime assets.
@@ -22,9 +26,9 @@ Opening the HTML as a `file:` URL is a limited preview: OneNote workers, diction
 
 1. Copy the complete project into your GitHub repository, including the hidden `.github/` directory and `.gitignore` file. Do not upload students' backups, notebooks or service-account files.
 2. In repository Settings → Pages, select **GitHub Actions** as the source.
-3. In Settings → Secrets and variables → Actions → Variables, set `SITE_URL` to the final HTTPS URL including the repository path, for example `https://YOUR-USERNAME.github.io/YOUR-REPOSITORY/`. Set `OWNER_CONTACT` to the operator's real name/organisation, appropriate address and privacy contact email. These values are public.
+3. In Settings → Secrets and variables → Actions → Variables, set `OWNER_CONTACT` to the operator's real name/organisation, appropriate address and privacy contact email. This information is public. The release defaults to the Hedgehog’s Comet GitHub Pages URL above. Set `SITE_URL` if publishing at a different HTTPS address.
 4. Push to `main` or run **Publish Hedgehog’s Comet**. The workflow checks the app, generates real canonical URLs, structured data, `sitemap.xml` and `robots.txt`, inserts the operator contact in the legal pages and publishes the staged website files.
-5. Review the privacy/terms pages against your actual operating arrangements before student rollout. The release script deliberately refuses to publish missing URL/contact information. The source sitemap has no fake URLs; it is populated at release time. The creator page is marked noindex and excluded from the sitemap.
+5. Review the privacy/terms pages against your actual operating arrangements before student rollout. The release script requires the operator contact and updates sitemap and preview URLs to match the deployment address. The creator page is marked noindex and excluded from the sitemap.
 6. You may submit the deployed sitemap to search engines. Indexing is not guaranteed. On a project Pages URL, the sitemap is under `/YOUR-REPOSITORY/sitemap.xml`; crawlers normally request `/robots.txt` at the domain root. If you control the root Pages repository/custom domain, put the root robots file there too. The project robots file alone cannot control the domain root.
 
 Manual release: `node scripts/release.mjs --site-url https://YOUR-HOST/YOUR-PATH/ --contact "Your operator and privacy contact details"`. Serve the publish directory printed by the script.
@@ -35,7 +39,7 @@ No Firebase project was available to configure during this build. Accounts remai
 
 1. Create/select your Firebase project. Register a web app and create **Cloud Firestore Standard** in a suitable region. Choose production/locked rules, not test mode. You do not need Firebase Hosting or Storage for this app.
 2. Enable Authentication → Email/Password. Students type a username and password; the adapter maps a normalised username to `username@users.kotoba.invalid` for Firebase's password provider. This is a synthetic identifier, not a real email address. Do not enable email-verification requirements or email-based reset workflows for these synthetic addresses. There is no email recovery. Password change and account deletion require the current password. No password is written to Firestore or app local storage.
-3. Add the GitHub Pages hostname and any custom hostname under Authentication → Settings → Authorised domains. Set a strong Firebase password policy (at least 12 characters) and review sign-up/abuse limits. Frontend length checks are not a substitute for backend policy.
+3. Add the GitHub Pages hostname (`fenrirak.github.io`) and any custom hostname under Authentication → Settings → Authorised domains. Set the Firebase password policy minimum to six characters to match the account form, and review sign-up/abuse limits.
 4. Paste the console's **public web app config** into `config.js`, replacing `firebase: null`. Never add Admin SDK/service-account/private keys to a website or Git repository.
 5. Run `npm install`, then `npx firebase login`. Select your project with `npx firebase use --add`. Deploy `firestore.rules` and `firestore.indexes.json` with `npx firebase deploy --only firestore --project YOUR_PROJECT_ID`.
 6. Run `npm run test:rules` with a supported Java runtime installed for the Firestore emulator. The included tests check owner access, unauthenticated access, cross-user reads/writes/deletes, malformed records and size limits. They were prepared but not run here because Java/Firebase emulator infrastructure was unavailable. Do not enable student accounts until these pass and you have tested two real devices and two different accounts.

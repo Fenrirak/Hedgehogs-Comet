@@ -31,8 +31,8 @@ export async function createSync({onSession,onState,onStatus}){
         return result;
       });
       if(epoch!==session)return;
-      onState(merged);onStatus('All changes synced');
-    }catch(error){if(epoch===session){pending=pending?mergeState(pending,local):local;onStatus('Saved on this device · sync paused. Retry when online.');}}
+      onState(merged);onStatus('All changes synced');return true;
+    }catch(error){if(epoch===session){pending=pending?mergeState(pending,local):local;onStatus('Saved on this device · sync paused. Retry when online.');}return false;}
     finally{busy=false;if(pending&&epoch===session&&navigator.onLine)timer=setTimeout(syncNow,15000);}
   }
   authSDK.onAuthStateChanged(auth,async next=>{
@@ -47,10 +47,15 @@ export async function createSync({onSession,onState,onStatus}){
   window.addEventListener('online',()=>syncNow());
   return {
     save(state){if(!user)return;pending=pending?mergeState(state,pending):state;clearTimeout(timer);timer=setTimeout(syncNow,3000);onStatus('Saved on this device · waiting to sync');},
-    async signIn(name,password,create,includeGuest){mergeGuest=!!includeGuest;if(create&&password.length<12)throw new Error('Choose a password with at least 12 characters.');try{return await (create?authSDK.createUserWithEmailAndPassword:authSDK.signInWithEmailAndPassword)(auth,email(name),password);}catch(error){mergeGuest=false;throw error;}},
+    async signIn(name,password,create,includeGuest){if(create&&password.length<6)throw new Error('Choose a password with at least 6 characters.');mergeGuest=!!includeGuest;try{return await (create?authSDK.createUserWithEmailAndPassword:authSDK.signInWithEmailAndPassword)(auth,email(name),password);}catch(error){mergeGuest=false;throw error;}},
     async signOut(){await syncNow();await authSDK.signOut(auth);},
-    retry:syncNow,
-    async changePassword(password,next){if(!user)throw new Error('Sign in first.');if(next.length<12)throw new Error('Choose at least 12 characters.');await authSDK.reauthenticateWithCredential(user,authSDK.EmailAuthProvider.credential(user.email,password));await authSDK.updatePassword(user,next);},
+    async retry(){
+      if(!user)return 'Sync checked. Sign in to sync your practice.';
+      if(busy)return 'Sync is already in progress.';
+      if(!pending)return 'Sync checked. Nothing new to sync.';
+      return await syncNow()?'Sync complete.':'Sync could not finish. Your practice is saved on this device.';
+    },
+    async changePassword(password,next){if(!user)throw new Error('Sign in first.');if(next.length<6)throw new Error('Choose at least 6 characters.');await authSDK.reauthenticateWithCredential(user,authSDK.EmailAuthProvider.credential(user.email,password));await authSDK.updatePassword(user,next);},
     async deleteAccount(password){if(!user)throw new Error('Sign in first.');await authSDK.reauthenticateWithCredential(user,authSDK.EmailAuthProvider.credential(user.email,password));const uid=user.uid;clearTimeout(timer);unsubscribe?.();session++;pending=null;while(busy)await new Promise(resolve=>setTimeout(resolve,100));const docs=await dbSDK.getDocs(dbSDK.collection(db,'users',uid,'state'));const batch=dbSDK.writeBatch(db);docs.forEach(d=>batch.delete(d.ref));await batch.commit();await authSDK.deleteUser(user);localStorage.removeItem('kotoba-club-user-'+uid);},
   };
 }
