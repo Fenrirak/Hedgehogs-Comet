@@ -45,9 +45,9 @@
 .password-field input:not([type=range]):not([type=checkbox]):not([type=file]){min-height:44px;padding-inline-end:52px}
 .password-toggle{position:absolute;inset-inline-end:1px;display:grid;place-items:center;min-width:44px;min-height:42px;border:0;border-radius:7px;background:transparent;color:var(--ink)}
 .password-toggle:hover{background:#eaf0e0}
-.password-eye{position:relative;width:18px;height:11px;border:1.5px solid currentColor;border-radius:75% 75% 75% 75% / 90% 90% 90% 90%}
-.password-eye::before{content:"";position:absolute;top:50%;left:50%;width:4px;height:4px;border-radius:50%;background:currentColor;transform:translate(-50%,-50%)}
-.password-field input[type="text"]+.password-toggle .password-eye::after{content:"";position:absolute;top:50%;left:50%;width:22px;height:1.5px;background:currentColor;box-shadow:0 -1px #fcfdf8;transform:translate(-50%,-50%) rotate(-42deg)}
+.password-eye{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.password-eye-slash{display:none}
+.password-field input[type="text"]+.password-toggle .password-eye-slash{display:inline}
 
 .creator-support{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px 20px;margin-top:44px;padding:18px 22px;background:#edf2df;border:1px solid #dfe7d1;border-radius:14px}
 .creator-support p{margin:0;color:var(--ink);font-size:14px;font-weight:700}

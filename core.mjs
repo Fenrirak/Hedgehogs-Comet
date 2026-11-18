@@ -14,6 +14,34 @@ export function parseSentences(text){
   const original = text.split(/\r?\n/u).map(line=>line.trim().replace(/^#{1,6}\s+/u,'').replace(/^[-*+]\s+/u,'').replace(/^\|\s*|\s*\|$/gu,'').split(/\s*\|\s*|\t+/u)[0]).filter(hasJapanese).join('\n');
   return (original.match(/[^。！？!?\n]+[。！？!?]?/gu)||[]).map(ja=>({ja:ja.trim(),reading:'',meaning:''})).filter(x=>hasJapanese(x.ja)).slice(0,500);
 }
+// Keep ordinary sentences intact. For unusually long items, prefer a clause
+// break, then a Japanese word boundary, before falling back to a character.
+export function speechChunks(text){
+  const limit=120;
+  if(text.length<=limit)return [text];
+  const words=typeof Intl.Segmenter==='function'
+    ? new Intl.Segmenter('ja',{granularity:'word'}).segment(text) : null;
+  const graphemes=words&&new Intl.Segmenter('ja',{granularity:'grapheme'}).segment(text);
+  const chunks=[];
+  let start=0;
+  while(text.length-start>limit){
+    const target=start+limit;
+    const window=text.slice(start,target);
+    const clause=/^([\s\S]*[、，,。！？!?；;\s])/u.exec(window);
+    let end=clause ? start+clause[1].length : words?.containing(target).index;
+    if(!end||end<=start)end=target;
+    if(graphemes){
+      const cluster=graphemes.containing(end);
+      end=cluster.index>start ? cluster.index : cluster.index+cluster.segment.length;
+    }else if(/[\uD800-\uDBFF]/u.test(text[end-1])&&/[\uDC00-\uDFFF]/u.test(text[end])){
+      end--;
+    }
+    chunks.push(text.slice(start,end));
+    start=end;
+  }
+  if(start<text.length)chunks.push(text.slice(start));
+  return chunks;
+}
 export function chooseNext(items,ratings,current,turn){
   if(items.length<2)return 0;
   let best=-1,score=Infinity;

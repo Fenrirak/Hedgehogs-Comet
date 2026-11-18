@@ -64,7 +64,7 @@ Validation used a public Unicode fixture from [onenote.rs](https://github.com/ms
 
 ## Audio, English and romaji
 
-Removed the silent warm-up utterance, idle cancellations and arbitrary 160-character slicing inside sentences. Full sentences are queued with the selected Japanese voice. Pauses and repetitions still deliberately create boundaries; Web Speech does not expose raw PCM audio, so it cannot apply a waveform fade to fix driver/voice clicks. Actual smoothness needs listening on your students' devices. If a voice has a startup bump, try another installed Japanese voice. Very long sentences can still hit device speech limits.
+Read-aloud uses the selected Japanese voice. Where Web Audio is available, playback briefly warms the output before the first word and keeps it active through timed practice gaps. Pausing, stopping, finishing, or waiting for a vocabulary rating releases the output. Ordinary sentences play in one utterance. Long items are divided at clause or word boundaries where possible to reduce truncation. A brief interval between utterances lets the previous request finish. Actual audio quality depends on the voice and output device.
 
 English uses the browser's local Translator API when available, otherwise a pinned Transformers.js/Marian Japanese→English model in a worker. Students explicitly allow model downloads; first use can download hundreds of MB and take several minutes. No text is sent to an external translation API. Unsupported/low-memory devices show a clear error. Translation is a machine suggestion. The model entry point and files were checked, but end-to-end inference was not run here.
 

@@ -125,17 +125,35 @@
     <button id="copyShareLink" class="primary-button" type="button">Copy link</button>
   </div>
 </dialog>
-<dialog id="accountDialog"><div class="dialog-top"><div><h2 id="accountTitle">Your practice, everywhere</h2></div><button id="accountClose" class="round-button" aria-label="Close account">×</button></div><p class="small muted">Guest practice stays on this device. An optional free account syncs your notes, ratings, settings and drafts across devices. On shared devices, sign out when finished. Sign-in lasts for this browser session.</p><p id="accountSetupNotice" class="setup-notice">Accounts are prepared but not enabled yet. The site owner needs to connect Firebase. You can keep practising and export a backup.</p><div id="signedOutControls"><form id="accountForm"><label for="username">Username</label><input id="username" autocomplete="username" pattern="[A-Za-z][A-Za-z0-9_]{2,23}" minlength="3" maxlength="24" required placeholder="e.g. kiwi_learner"><label for="password">Password</label><div class="password-field">
+<dialog id="accountDialog"><div class="dialog-top"><div><h2 id="accountTitle">Your practice, everywhere</h2></div><button id="accountClose" class="round-button" aria-label="Close account">×</button></div><p class="small muted">Guest practice stays on this device. On shared devices, sign out when finished. Sign-in lasts for this browser session.</p><p id="accountSetupNotice" class="setup-notice">Accounts are prepared but not enabled yet. The site owner needs to connect Firebase. You can keep practising and export a backup.</p><div id="signedOutControls"><form id="accountForm"><label for="username">Username</label><input id="username" autocomplete="username" pattern="[A-Za-z][A-Za-z0-9_]{2,23}" minlength="3" maxlength="24" required placeholder="e.g. kiwi_learner"><label for="password">Password</label><div class="password-field">
   <input id="password" type="password" autocomplete="current-password" required minlength="6">
-  <button class="password-toggle" type="button" aria-controls="password" aria-label="Show password" data-password-toggle="password"><span class="password-eye" aria-hidden="true"></span></button>
-</div><label class="download-choice"><input id="createAccount" type="checkbox"> Create a new account</label><label class="download-choice"><input id="mergeGuest" type="checkbox"> Include this device’s guest practice in my account</label><p class="small muted">Use a nickname rather than your full name. Choose a unique password of 6+ characters. No email is collected, so there is no email password reset. Keep your password and practice backup safe.</p><div id="accountConsent" hidden>
+  <button class="password-toggle" type="button" aria-controls="password" aria-label="Show password" data-password-toggle="password">
+    <svg class="password-eye" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 12C5.2 7.8 8.5 5.5 12 5.5S18.8 7.8 22 12c-3.2 4.2-6.5 6.5-10 6.5S5.2 16.2 2 12Z"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path class="password-eye-slash" d="m3 21 18-18"/>
+    </svg>
+  </button>
+</div><label class="download-choice"><input id="createAccount" type="checkbox" aria-describedby="accountSyncHelp"> Create a new account</label><p id="accountSyncHelp" class="small muted">A free account syncs your practice notes, ratings, settings and drafts. Sign in with the same account on each device to pick up where you left off.</p><label class="download-choice"><input id="mergeGuest" type="checkbox"> Include this device’s guest practice in my account</label><p class="small muted">Use a nickname rather than your full name. Choose a unique password of 6+ characters. No email is collected, so there is no email password reset. Keep your password and practice backup safe.</p><div id="accountConsent" hidden>
   <label class="download-choice"><input id="acceptAccountTerms" type="checkbox"> <span>I agree to the <a href="terms.html" target="_blank" rel="noopener">terms of use</a> and acknowledge the <a href="privacy.html" target="_blank" rel="noopener">privacy policy</a>.</span></label>
 </div>
 <button id="accountSubmit" class="primary-button" disabled>Continue</button></form></div><div id="signedInControls" class="hidden"><button id="signOut" class="secondary-button">Sign out on this device</button><details><summary>Change password or delete account</summary><label for="currentPassword">Current password</label><div class="password-field">
   <input id="currentPassword" type="password" autocomplete="current-password">
-  <button class="password-toggle" type="button" aria-controls="currentPassword" aria-label="Show current password" data-password-toggle="current password"><span class="password-eye" aria-hidden="true"></span></button>
+  <button class="password-toggle" type="button" aria-controls="currentPassword" aria-label="Show current password" data-password-toggle="current password">
+    <svg class="password-eye" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 12C5.2 7.8 8.5 5.5 12 5.5S18.8 7.8 22 12c-3.2 4.2-6.5 6.5-10 6.5S5.2 16.2 2 12Z"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path class="password-eye-slash" d="m3 21 18-18"/>
+    </svg>
+  </button>
 </div><label for="newPassword">New password (6+ characters)</label><div class="password-field">
   <input id="newPassword" type="password" autocomplete="new-password" minlength="6">
-  <button class="password-toggle" type="button" aria-controls="newPassword" aria-label="Show new password" data-password-toggle="new password"><span class="password-eye" aria-hidden="true"></span></button>
+  <button class="password-toggle" type="button" aria-controls="newPassword" aria-label="Show new password" data-password-toggle="new password">
+    <svg class="password-eye" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M2 12C5.2 7.8 8.5 5.5 12 5.5S18.8 7.8 22 12c-3.2 4.2-6.5 6.5-10 6.5S5.2 16.2 2 12Z"/>
+      <circle cx="12" cy="12" r="3"/>
+      <path class="password-eye-slash" d="m3 21 18-18"/>
+    </svg>
+  </button>
 </div><button id="changePassword" class="text-button">Change password</button><hr><p class="small">Deleting removes this account and its cloud practice. Export first if you want a copy. A separate guest practice is kept.</p><label for="deleteConfirmation">Type DELETE to confirm account deletion</label><input id="deleteConfirmation" autocomplete="off"><button id="deleteAccount" class="text-button danger">Delete account and cloud practice</button></details></div><p id="accountMessage" role="status" aria-live="polite" class="small"></p><div class="dialog-actions"><button id="accountExport" class="text-button">Export all my practice ↓</button><label class="text-button">Restore backup <input id="accountRestore" type="file" accept=".json" class="backup-input"></label></div></dialog><div id="toast" role="status" aria-live="polite"></div><script src="config.js"></script><script type="module" src="app.mjs"></script>
 </body></html>

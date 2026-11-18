@@ -1,6 +1,6 @@
 import {toEnglish,toRomaji} from './language.mjs';
 import {startEnhancements} from './enhancements.mjs';
-import {packs,parseVocabulary,parseSentences,chooseNext,reviewRating,createVariations,clamp,hasJapanese} from './core.mjs';
+import {packs,parseVocabulary,parseSentences,speechChunks,chooseNext,reviewRating,createVariations,clamp,hasJapanese} from './core.mjs';
 import {importFile} from './importer.mjs';
 import {isMaterialLink,makeMaterialLink,readMaterialLink} from './sharing.mjs';
 const $=id=>document.getElementById(id), KEY='kotoba-club-v1';
@@ -50,7 +50,7 @@ function toast(message){$('toast').textContent=message;$('toast').classList.add(
 function setStatus(text,playing=false){$('statusText').textContent=text;$('status').classList.toggle('playing',playing);}
 function voiceOptions(){
   if(!('speechSynthesis' in window)){$('voice').replaceChildren(new Option('Speech unavailable in this browser',''));$('voiceHelp').textContent='Try a browser with text-to-speech support and a Japanese voice.';$('voiceHelp').classList.add('warning');return;}
-  const old=$('voice').value||selectedVoice;voices=speechSynthesis.getVoices().filter(v=>/^ja(?:-|_|$)/i.test(v.lang));
+  const old=($('voice').value!==''&&voices[Number($('voice').value)]?.voiceURI)||selectedVoice;voices=speechSynthesis.getVoices().filter(v=>/^ja(?:-|_|$)/i.test(v.lang));
   $('voice').replaceChildren(...(voices.length?voices.map((v,i)=>new Option(v.name+(v.localService?' · on device':''),String(i))):[new Option('No Japanese voice found','')]));
   let match=voices.findIndex(v=>v.voiceURI===old||v.name===old);if(match<0&&old!==''&&voices[Number(old)])match=Number(old);if(match>=0)$('voice').value=String(match);
   $('voiceHelp').textContent=voices.length?'Choose the clearest voice for you. Preview it with Start listening.':'Install a Japanese speech voice in your device’s language settings, then reopen the browser.';
@@ -84,9 +84,44 @@ function updatePlay(){
   $('play').disabled=!voices.length||!items.length;$('play').setAttribute('aria-disabled',String(!!feedbackState||$('play').disabled));
   $('resetPractice').disabled=!items.length;
 }
-function interrupt(){generation++;if(cancelPending){const fn=cancelPending;cancelPending=null;fn();}if('speechSynthesis'in window&&(speechSynthesis.speaking||speechSynthesis.pending))speechSynthesis.cancel();}
+let outputContext=null,speechReadyAt=0;
+function releaseOutput(){
+  const context=outputContext;
+  outputContext=null;
+  if(context&&context.state!=='closed')context.close().catch(()=>{});
+}
+function warmOutput(){
+  const AudioContext=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContext||outputContext)return;
+  try{
+    const context=new AudioContext();
+    outputContext=context;
+    // Keep the output device awake through practice gaps at a near-silent level.
+    const tone=context.createOscillator(),gain=context.createGain();
+    tone.frequency.value=30;
+    gain.gain.value=0.0001;
+    tone.connect(gain);
+    gain.connect(context.destination);
+    tone.start();
+    const allowLeadIn=()=>{
+      if(outputContext!==context)return;
+      const latencyMs=1000*((context.baseLatency||0)+(context.outputLatency||0));
+      const leadInMs=clamp(latencyMs+150,350,1200,350);
+      speechReadyAt=Math.max(speechReadyAt,performance.now()+leadInMs);
+    };
+    context.onstatechange=()=>{if(context.state==='running')allowLeadIn();};
+    context.onsinkchange=allowLeadIn;
+    allowLeadIn();
+    if(context.state!=='running')context.resume().then(allowLeadIn,()=>{});
+  }catch{releaseOutput();}
+}
+function interrupt(){
+  generation++;
+  if(cancelPending){const cancel=cancelPending;cancelPending=null;cancel();}
+  releaseOutput();
+}
 function stop(){interrupt();running=false;paused=false;setFeedback('');setStatus('Ready when you are');}
-function pause(){interrupt();running=false;paused=true;setStatus('Paused · continue to replay this item');updatePlay();}
+function pause(){interrupt();running=false;paused=true;setFeedback('');setStatus('Paused · continue to replay this item');}
 function wait(ms,token){return new Promise(resolve=>{if(token!==generation){resolve(false);return;}const timer=setTimeout(()=>{if(cancelPending===cancel)cancelPending=null;resolve(token===generation);},ms);const cancel=()=>{clearTimeout(timer);resolve(false);};cancelPending=cancel;});}
 function setFeedback(state){
   feedbackState=state;
@@ -97,8 +132,13 @@ function setFeedback(state){
   updatePlay();
 }
 function waitForRating(){
+  releaseOutput();
   return new Promise(resolve=>{
-    const finish=kind=>{respondToRating=null;cancelPending=null;resolve(kind);};
+    const finish=kind=>{
+      respondToRating=null;cancelPending=null;
+      if(kind&&($('loop').checked||sessionReads+1<items.length))warmOutput();
+      resolve(kind);
+    };
     respondToRating=finish;
     cancelPending=()=>finish(null);
     setFeedback('prompt');
@@ -106,36 +146,71 @@ function waitForRating(){
     if(document.activeElement===$('play'))$('forgot').focus({preventScroll:true});
   });
 }
-function say(text,token){
+async function say(text,token,repeat){
+  while(token===generation&&speechReadyAt>performance.now()){
+    if(!await wait(speechReadyAt-performance.now(),token))return false;
+  }
   return new Promise((resolve,reject)=>{
     if(token!==generation){resolve(false);return;}
-    const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';u.voice=voices[Number($('voice').value)]||voices[0];u.rate=Number($('speed').value);u.pitch=1;u.volume=1;
-    let done=false;const finish=(ok,error)=>{if(done)return;done=true;clearTimeout(watchdog);if(cancelPending===cancel)cancelPending=null;if(error)reject(error);else resolve(ok);};
-    const cancel=()=>finish(false);cancelPending=cancel;
-    const watchdog=setTimeout(()=>{speechSynthesis.cancel();finish(false,new Error('The Japanese voice stopped responding. Try another voice, then press Start listening.'));},Math.max(30000,text.length*650/u.rate));
-    u.onstart=()=>{if(token===generation)setStatus(`Listening · repeat ${activeRepeat} of ${$('repeats').value}`,true);};u.onend=()=>finish(token===generation);u.onerror=e=>{if(token!==generation||['canceled','interrupted'].includes(e.error))finish(false);else finish(false,new Error('The Japanese voice could not play. Check your device’s audio and try another Japanese voice.'));};
-    speechSynthesis.speak(u);
+    const voice=voices[Number($('voice').value)]||voices[0];
+    if(!voice)throw new Error('Select a Japanese voice, then press Start listening.');
+    const u=new SpeechSynthesisUtterance(text);u.lang=voice.lang;u.voice=voice;u.rate=Number($('speed').value);u.pitch=1;u.volume=1;
+    let done=false;
+    const finish=(ok,error)=>{
+      if(done)return;
+      done=true;
+      clearTimeout(watchdog);
+      u.onstart=u.onend=u.onerror=null;
+      if(cancelPending===cancel)cancelPending=null;
+      if(error)reject(error);else resolve(ok);
+    };
+    const cancel=error=>{
+      finish(false,error);
+      // Some engines deliver cancellation asynchronously. Let the old request drain.
+      speechReadyAt=performance.now()+180;
+      speechSynthesis.cancel();
+    };
+    cancelPending=cancel;
+    const watchdog=setTimeout(()=>cancel(new Error('The Japanese voice stopped responding. Try another voice, then press Start listening.')),Math.max(30000,text.length*650/u.rate));
+    u.onstart=()=>{if(!done&&token===generation)setStatus(`Listening · repeat ${repeat} of ${$('repeats').value}`,true);};
+    u.onend=()=>{
+      if(done)return;
+      speechReadyAt=Math.max(speechReadyAt,performance.now()+80);
+      finish(token===generation);
+    };
+    u.onerror=e=>{
+      if(done)return;
+      if(['canceled','interrupted'].includes(e.error)){
+        finish(false);
+        if(token===generation)pause();
+      }else finish(false,new Error('The Japanese voice could not play. Check your device’s audio and try another Japanese voice.'));
+    };
+    try{
+      if(speechSynthesis.paused)speechSynthesis.resume();
+      speechSynthesis.speak(u);
+    }catch(error){finish(false,error);}
   });
 }
-let activeRepeat=1;
 async function start(){
   if(feedbackState)return;
   if(running){pause();return;}
   if(!voices.length){toast('Install or select a Japanese voice before listening.');return;}
   if(!items.length){openEditor('type');return;}
   const resume=paused;interrupt();const token=generation;running=true;paused=false;sessionReads=resume?sessionReads:0;updatePlay();
+  warmOutput();
   try{
     if(!resume){for(let seconds=Number($('delay').value);seconds>0;seconds--){setStatus(`Get comfortable · starting in ${seconds}…`);if(!await wait(1000,token))return;}}
     while(token===generation&&running){
       const text=items[current].ja;
-      // Exact slices prevent long-utterance truncation without inventing text.
-      const chunks=[text]; // Preserve the full sentence’s natural prosody.
-      for(activeRepeat=1;activeRepeat<=Number($('repeats').value);activeRepeat++){
+      const chunks=speechChunks(text);
+      for(let activeRepeat=1;activeRepeat<=Number($('repeats').value);activeRepeat++){
         setStatus(`Listening · repeat ${activeRepeat} of ${$('repeats').value}`,true);
-        for(const chunk of chunks){if(!await say(chunk,token))return;}
+        for(const chunk of chunks){
+          if(!chunk.trim())continue;
+          if(!await say(chunk,token,activeRepeat)||token!==generation)return;
+        }
         if(activeRepeat<Number($('repeats').value)){setStatus('Your turn · say it out loud');if(!await wait(Number($('gap').value)*1000,token))return;}
       }
-      sessionReads++;
       if(mode==='vocab'){
         const kind=await waitForRating();
         if(!kind||token!==generation)return;
@@ -149,20 +224,22 @@ async function start(){
         setFeedback(kind);
         if(hadRatingFocus)$('play').focus({preventScroll:true});
         if(!await wait(Math.max(700,Number($('gap').value)*1000),token))return;
+        sessionReads++;
         const complete=!$('loop').checked&&sessionReads>=items.length;
         if(!complete){advance($('loop').checked);setStatus('Next word');}
         setFeedback('');
         if(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches&&!await wait(280,token))return;
         if(complete){completePractice();return;}
       }else{
-        if(!$('loop').checked&&sessionReads>=items.length){completePractice();return;}
+        if(!$('loop').checked&&sessionReads+1>=items.length){completePractice();return;}
         setStatus('Your turn · try the sentence aloud');if(!await wait(Number($('gap').value)*1000,token))return;
-        advance();if(!await wait(30,token))return;
+        sessionReads++;
+        advance();
       }
     }
   }catch(error){if(token===generation){stop();setStatus('Audio needs a little attention');toast(error.message);}}
 }
-function completePractice(){running=false;paused=false;setStatus('Lovely work · practice complete');updatePlay();}
+function completePractice(){releaseOutput();running=false;paused=false;setStatus('Lovely work · practice complete');updatePlay();}
 function advance(adaptive=false){
   if(!items.length)return;
   turn++;current=adaptive&&mode==='vocab'?chooseNext(items,previewRatings,current,turn):(current+1)%items.length;render();renderWords();persist();
