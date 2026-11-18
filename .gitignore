@@ -1,0 +1,11 @@
+node_modules/
+.firebase/
+*-debug.log
+.env*
+!.env.example
+*.one
+*.onepkg
+*service-account*.json
+*serviceAccount*.json
+kotoba-account-backup*.json
+kotoba-practice*.json

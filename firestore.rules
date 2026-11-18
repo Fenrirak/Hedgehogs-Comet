@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/state/{record} {
+      function owner() { return request.auth != null && request.auth.uid == uid; }
+      allow read, delete: if owner();
+      allow create, update: if owner() && (
+        (record == 'manifest'
+          && request.resource.data.keys().hasOnly(['schema','count','revision','client','updatedAt'])
+          && request.resource.data.schema == 1
+          && request.resource.data.count is int && request.resource.data.count >= 1 && request.resource.data.count <= 100
+          && request.resource.data.revision is int && request.resource.data.revision >= 1
+          && request.resource.data.client is string && request.resource.data.client.size() <= 80
+          && request.resource.data.updatedAt == request.time)
+        || (record.matches('chunk-[0-9]{1,2}')
+          && request.resource.data.keys().hasOnly(['text'])
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 120000)
+      );
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
