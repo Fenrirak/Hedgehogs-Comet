@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {mergeState,splitState,normaliseUsername} from '../state.mjs';
+assert.equal(normaliseUsername(' Kiwi_1 '),'kiwi_1');assert.throws(()=>normaliseUsername('a@b.com'));assert.throws(()=>normaliseUsername('../alice'));assert.throws(()=>normaliseUsername('ab'));
+const remote={updatedAt:10,materials:[{id:'a',name:'A',text:'学校',updatedAt:9}],ratings:{'水':{kind:'forgot',updatedAt:10}},settings:{speed:.8}};
+const local={updatedAt:20,materials:[{id:'b',name:'B',text:'水',updatedAt:15}],ratings:{'水':{kind:'got',updatedAt:20}},deleted:{a:18},draft:{text:'日本語'}};
+const merged=mergeState(local,remote);assert.deepEqual(merged.materials.map(x=>x.id),['b']);assert.equal(merged.ratings['水'].kind,'got');assert.equal(merged.draft.text,'日本語');
+assert.deepEqual(mergeState(merged,remote),merged,'Old device cannot resurrect deleted material');
+const updated=mergeState({materials:[{id:'a',name:'restored',text:'学校',updatedAt:30}],updatedAt:30},merged);assert.equal(updated.materials.length,2,'Explicit later recreation survives tombstone');
+const state={text:'日本語🍎'.repeat(50000)};assert.deepEqual(JSON.parse(splitState(state).join('')),state,'Chunked Unicode survives round trip');
+assert.ok(splitState(state).every(x=>new TextEncoder().encode(x).byteLength<1000000),'Cloud chunks stay below Firestore document limit');
+assert.throws(()=>splitState({text:'x'.repeat(12000001)}));
+console.log('PASS: username validation, offline edits, deletions, latest ratings and bounded Unicode cloud chunks.');
