@@ -18,4 +18,10 @@ export function mergeState(local={},remote={}){
   for(const [word,rating]of Object.entries(local.ratings||{}))if((rating?.updatedAt||0)>=(ratings[word]?.updatedAt||0))ratings[word]=rating;
   return {...newest,materials:[...materials.values()],ratings,deleted,updatedAt:Math.max(Number(local.updatedAt)||0,Number(remote.updatedAt)||0)};
 }
-export function splitState(state){const raw=JSON.stringify(state);if(raw.length>STATE_LIMIT)throw new Error('Your cloud practice exceeds the sync limit. Export and remove unused material.');const parts=[];for(let i=0;i<raw.length;i+=CHUNK_SIZE)parts.push(raw.slice(i,i+CHUNK_SIZE));return parts;}
+export function splitState(state){const raw=JSON.stringify(state);if(raw.length>STATE_LIMIT)throw new Error('Your cloud practice exceeds the sync limit. Export and remove unused material.');const parts=[];for(let start=0;start<raw.length;){
+  let end=Math.min(start+CHUNK_SIZE,raw.length);
+  if(end<raw.length&&/[\uD800-\uDBFF]/u.test(raw[end-1]))end--;
+  parts.push(raw.slice(start,end));
+  start=end;
+}
+if(parts.length>100)throw new Error('Your cloud practice exceeds the sync limit. Export and remove unused material.');return parts;}

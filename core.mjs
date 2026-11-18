@@ -11,8 +11,8 @@ export function parseVocabulary(text){
   }).slice(0,500);
 }
 export function parseSentences(text){
-  const original = text.split(/\r?\n/u).map(line=>line.trim().replace(/^#{1,6}\s+/u,'').replace(/^[-*+]\s+/u,'').replace(/^\|\s*|\s*\|$/gu,'').split(/\s*\|\s*|\t+/u)[0]).filter(hasJapanese).join('\n');
-  return (original.match(/[^。！？!?\n]+[。！？!?]?/gu)||[]).map(ja=>({ja:ja.trim(),reading:'',meaning:''})).filter(x=>hasJapanese(x.ja)).slice(0,500);
+  const original = text.split(/\r?\n/u).map(line=>line.trim().replace(/^#{1,6}\s+/u,'').replace(/^[-*+]\s+/u,'').replace(/^\d+[.)]\s+/u,'').replace(/^\|\s*|\s*\|$/gu,'').split(/\s*\|\s*|\t+/u)[0]).filter(hasJapanese).join('\n');
+  return (original.match(/[^。！？!?\n]+[。！？!?]*/gu)||[]).map(ja=>({ja:ja.trim(),reading:'',meaning:''})).filter(x=>hasJapanese(x.ja)).slice(0,500);
 }
 // Keep ordinary sentences intact. For unusually long items, prefer a clause
 // break, then a Japanese word boundary, before falling back to a character.
@@ -70,6 +70,7 @@ export function createVariations(paragraph,rules,reference,limit=12){
     if([...originals].some(x=>x.includes(r.from)||r.from.includes(x)))throw new Error('Overlapping original words need separate practices.');
     originals.add(r.from);
     r.choices=[...new Set(r.to.split(/[,，、\n]/u).map(x=>x.trim()).filter(Boolean))];
+    if(!r.choices.length)throw new Error('Add a replacement word between the commas.');
     if(r.choices.length>20)throw new Error('Use at most 20 alternatives for each word.');
     for(const word of r.choices){
       if(!hasJapanese(word)||/[。！？!?\n]/u.test(word))throw new Error('Use Japanese words in the same form, without sentence punctuation.');

@@ -1,8 +1,16 @@
 import {createSync} from './sync.mjs';
 import {mergeState} from './state.mjs';
-import {toEnglish,toRomaji} from './language.mjs';
 export async function startEnhancements(hooks){
-  const byId=id=>document.getElementById(id);let adapter=null,account=null,languageEpoch=0;
+  const byId=id=>document.getElementById(id);let adapter=null;
+  const handwriting=byId('handwritingMode');
+  handwriting.disabled=true;
+  function updateHandwriting(signedIn){
+    const enabled=!!window.KOTOBA_CONFIG?.handwritingEnabled;
+    handwriting.disabled=!enabled||!signedIn;
+    if(handwriting.disabled)handwriting.checked=false;
+    byId('handwritingHelp').textContent=!enabled?'Cloud handwriting is unavailable on this site. Printed-text OCR works locally.':signedIn?'Enabling this sends selected images to Google Cloud Vision. Printed-text OCR stays local.':'Sign in to use cloud handwriting recognition. Printed-text OCR works locally.';
+  }
+  updateHandwriting(false);
   const status=message=>{byId('syncStatus').textContent=message;};
   byId('accountOpen').onclick=()=>{if(document.getElementById('importDialog').open)return;byId('accountDialog').showModal();};byId('accountClose').onclick=()=>byId('accountDialog').close();
   const passwordToggles=document.querySelectorAll('[data-password-toggle]');
@@ -14,7 +22,8 @@ export async function startEnhancements(hooks){
     button.onclick=()=>showPassword(button,byId(button.getAttribute('aria-controls')).type==='password');
   }
   byId('accountDialog').addEventListener('close',()=>{
-    for(const button of passwordToggles)showPassword(button,false);
+    for(const button of passwordToggles){showPassword(button,false);byId(button.getAttribute('aria-controls')).value='';}
+    byId('deleteConfirmation').value='';byId('mergeGuest').checked=false;
   });
   const createAccount=byId('createAccount'),consent=byId('acceptAccountTerms');
   function updateAccountForm(){
@@ -45,7 +54,7 @@ export async function startEnhancements(hooks){
     }finally{button.disabled=false;}
   };
   byId('accountExport').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({format:'kotoba-club-account-v1',state:hooks.snapshot()},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='hedgehogs-comet-backup.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
-  byId('accountRestore').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>40000000)throw new Error('This backup is too large.');const data=JSON.parse(await file.text());if(data.format!=='kotoba-club-account-v1'||!Array.isArray(data.state?.materials))throw new Error('Choose a Hedgehog’s Comet account backup.');hooks.apply(mergeState(data.state,hooks.snapshot()));hooks.save();byId('accountMessage').textContent='Backup merged with this practice.';}catch(error){byId('accountMessage').textContent=error.message;}};
+  byId('accountRestore').onchange=async e=>{try{const file=e.target.files[0];if(!file)return;if(file.size>40000000)throw new Error('This backup is too large.');const data=JSON.parse(await file.text());if(data?.format!=='kotoba-club-account-v1'||!Array.isArray(data.state?.materials)||data.state.materials.some(m=>typeof m?.id!=='string'||typeof m.name!=='string'||typeof m.text!=='string'||m.text.length>200000)|| (data.state.swaps!=null&&!Array.isArray(data.state.swaps)))throw new Error('Choose a Hedgehog’s Comet account backup.');hooks.apply(mergeState(data.state,hooks.snapshot()));hooks.save();byId('accountMessage').textContent='Backup merged with this practice.';}catch(error){byId('accountMessage').textContent=error.message;}finally{e.target.value='';}};
   byId('changePassword').onclick=async()=>{
     const current=byId('currentPassword'),next=byId('newPassword'),message=byId('accountMessage');
     if(next.value.length<6){message.textContent='Use at least 6 characters for the new password.';next.focus();return;}
@@ -58,7 +67,7 @@ export async function startEnhancements(hooks){
       onStatus:status,
       onState:state=>{if(!state)return hooks.snapshot();hooks.apply(mergeState(hooks.snapshot(),state));return hooks.snapshot();},
       onSession:async(user,includeGuest)=>{
-        languageEpoch++;const before=hooks.snapshot();account=user;
+        const before=hooks.snapshot();updateHandwriting(!!user);
         const next=hooks.changeAccount(user?.uid||null);
         hooks.apply(user&&includeGuest?mergeState(next,before):next);
         byId('signedOutControls').classList.toggle('hidden',!!user);byId('signedInControls').classList.toggle('hidden',!user);byId('accountOpen').textContent=user?user.username+' · account':'Free account';byId('accountTitle').textContent=user?`Your account · ${user.username}`:'Your practice, everywhere';

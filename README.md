@@ -35,14 +35,14 @@ Manual release: `node scripts/release.mjs --site-url https://YOUR-HOST/YOUR-PATH
 
 ## Enable optional Firebase accounts
 
-No Firebase project was available to configure during this build. Accounts remain visibly disabled until these steps are completed. The Firebase plugin is available in the Codex plugin directory if you want to connect it for a later setup session.
+The checked-in web configuration points to the `hedgehog-s-comet` Firebase project. Verify its Authentication and Firestore settings before enabling accounts for students. For guest-only operation, set `firebase` to `null` in `config.js`.
 
 1. Create/select your Firebase project. Register a web app and create **Cloud Firestore Standard** in a suitable region. Choose production/locked rules, not test mode. You do not need Firebase Hosting or Storage for this app.
 2. Enable Authentication → Email/Password. Students type a username and password; the adapter maps a normalised username to `username@users.kotoba.invalid` for Firebase's password provider. This is a synthetic identifier, not a real email address. Do not enable email-verification requirements or email-based reset workflows for these synthetic addresses. There is no email recovery. Password change and account deletion require the current password. No password is written to Firestore or app local storage.
 3. Add the GitHub Pages hostname (`fenrirak.github.io`) and any custom hostname under Authentication → Settings → Authorised domains. Set the Firebase password policy minimum to six characters to match the account form, and review sign-up/abuse limits.
-4. Paste the console's **public web app config** into `config.js`, replacing `firebase: null`. Never add Admin SDK/service-account/private keys to a website or Git repository.
+4. Paste the console's **public web app config** into `config.js`, when configuring a different project. Never add Admin SDK/service-account/private keys to a website or Git repository.
 5. Run `npm install`, then `npx firebase login`. Select your project with `npx firebase use --add`. Deploy `firestore.rules` and `firestore.indexes.json` with `npx firebase deploy --only firestore --project YOUR_PROJECT_ID`.
-6. Run `npm run test:rules` with a supported Java runtime installed for the Firestore emulator. The included tests check owner access, unauthenticated access, cross-user reads/writes/deletes, malformed records and size limits. They were prepared but not run here because Java/Firebase emulator infrastructure was unavailable. Do not enable student accounts until these pass and you have tested two real devices and two different accounts.
+6. Run `npm run test:rules` with a supported Java runtime installed for the Firestore emulator. The included tests check owner access, unauthenticated access, cross-user reads/writes/deletes, malformed records and size limits. Do not enable student accounts until these pass and you have tested two real devices and two different accounts.
 7. Optional: register Firebase App Check with reCAPTCHA Enterprise, add the public site key in `config.js`, test legitimate clients, then enable enforcement in Firebase. This can reduce abuse. Confirm quotas, monitoring and current provider pricing before enabling billing. The app is free to learners; infrastructure free tiers still have finite quotas.
 8. Test signup, wrong-password handling, syncing, offline edits, deleting a practice on one device, signing out on a shared device, password changes and deleting an account. Publish the final configuration through GitHub Pages.
 
@@ -60,13 +60,13 @@ In OneNote desktop, choose File → Export → Notebook → **OneNote Package (.
 
 The reader supports typed text, not image/handwriting OCR inside OneNote, and does not recreate notebook layout. Some protected/unsupported notebook versions require PDF/DOCX export. Recovered objects can include historical revisions; reading order may differ. Review against the notebook and remove unwanted/old material before use. Limits: 20 MB per input, 80 MB expanded archive, 60 sections, 40 MB per extracted section, 200,000 characters per practice, 500 player items. Large school notebooks may need section exports. PDF/image OCR remains available separately.
 
-Validation used a public Unicode fixture from [onenote.rs](https://github.com/msiemens/onenote.rs/tree/master/crates/parser/tests/samples), packed as an MSZIP CAB. CAB extraction and typed-text parsing succeeded in Node WebAssembly. This is not a blanket compatibility guarantee for your school's notebooks. The browser worker integration still needs a hosted-site check with representative exports.
+Validation used a public Unicode fixture from [onenote.rs](https://github.com/msiemens/onenote.rs/tree/master/crates/parser/tests/samples), packed as an MSZIP CAB. CAB extraction and typed-text parsing succeeded in Node WebAssembly. This is not a blanket compatibility guarantee for your school's notebooks. Chrome also recovered typed text from the public Unicode section and a CAB package containing that section.
 
 ## Audio, English and romaji
 
 Read-aloud uses the selected Japanese voice. Where Web Audio is available, playback briefly warms the output before the first word and keeps it active through timed practice gaps. Pausing, stopping, finishing, or waiting for a vocabulary rating releases the output. Ordinary sentences play in one utterance. Long items are divided at clause or word boundaries where possible to reduce truncation. A brief interval between utterances lets the previous request finish. Actual audio quality depends on the voice and output device.
 
-English uses the browser's local Translator API when available, otherwise a pinned Transformers.js/Marian Japanese→English model in a worker. Students explicitly allow model downloads; first use can download hundreds of MB and take several minutes. No text is sent to an external translation API. Unsupported/low-memory devices show a clear error. Translation is a machine suggestion. The model entry point and files were checked, but end-to-end inference was not run here.
+English uses the browser's local Translator API when available, otherwise a pinned Transformers.js/Marian Japanese→English model in a worker. Students explicitly allow model downloads; first use can download hundreds of MB and take several minutes. No text is sent to an external translation API. Unsupported/low-memory devices show a clear error. Translation is a machine suggestion. The fallback translated `こんにちは。` to `Hi.` in Chrome.
 
 Romaji uses vendored Kuroshiro/Kuromoji dictionaries. Kanji and particle handling were tested with `私はりんごを食べます。`, producing spaced Hepburn `watashi wa ringo o tabe masu .`. Context-sensitive readings and names still need a human check. These tools do not change the source Japanese.
 
@@ -74,7 +74,7 @@ Romaji uses vendored Kuroshiro/Kuromoji dictionaries. Kanji and particle handlin
 
 `npm test`: source checks, parsing/scheduling/substitution tests, sync merge tests and DOM runtime tests with a stub speech engine. The DOM test checks startup, guest saving, ratings, exact speech queue, idle cancellation, paragraphs and the unconfigured-account guard. The speech stub does not validate acoustic quality. `npm run test:rules` uses Firebase emulators separately.
 
-Passed here: JS syntax, all existing core checks, merge/deletion/Unicode chunk checks, DOM runtime checks, actual dictionary conversion, and CAB→OneNote typed-text recovery. Browser visual/audio/OCR/model-inference checks and live Firebase/GitHub deployment remain unverified. Earlier browser preview access was declined by the local-origin approval gate; no browser workaround was used.
+Chrome checks covered all four pages at 320, 375 and 1280 pixels, material creation and sharing, the sentence mixer, dictionary conversion, translation, ZIP/DOCX extraction, image and PDF OCR, and OneNote section and package import. The local Auth and Firestore emulators passed the account lifecycle and rules checks. Live cloud handwriting, production accounts and device audio quality require separate verification.
 
 ## Upstream references and licences
 

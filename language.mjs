@@ -7,7 +7,7 @@ export async function toRomaji(text){
   if(!romajiReady)romajiReady=(async()=>{
     await loadReadingScript('./vendor/romaji/kuroshiro.min.js');await loadReadingScript('./vendor/romaji/kuroshiro-analyzer-kuromoji.min.js');
     const K=window.Kuroshiro.default||window.Kuroshiro,A=window.KuromojiAnalyzer.default||window.KuromojiAnalyzer;
-    const instance=new K();await instance.init(new A({dictPath:new URL('./vendor/romaji/dict/',document.baseURI).href}));return instance;
+    const instance=new K();await instance.init(new A({dictPath:'./vendor/romaji/dict/'}));return instance;
   })().catch(error=>{romajiReady=null;throw error;});
   return (await romajiReady).convert(text,{to:'romaji',mode:'spaced',romajiSystem:'hepburn'});
 }
@@ -15,11 +15,12 @@ async function englishInternal(text,progress,allowDownload){
   if(!text.trim())throw new Error('Enter Japanese first.');
   if(text.length>3000)throw new Error('Translate up to 3,000 characters at a time.');
   if('Translator'in self){
-    const availability=await self.Translator.availability({sourceLanguage:'ja',targetLanguage:'en'});
+    const availability=await self.Translator.availability({sourceLanguage:'ja',targetLanguage:'en'}).catch(()=>'unavailable');
     if(availability!=='unavailable'){
       if(availability!=='available'&&!allowDownload)throw new Error('Allow the one-time model download to enable local translation.');
-      const translator=await self.Translator.create({sourceLanguage:'ja',targetLanguage:'en',monitor(m){m.addEventListener('downloadprogress',e=>progress(`Downloading translation model… ${Math.round(e.loaded*100)}%`));}});
-      try{return await translator.translate(text);}finally{translator.destroy();}
+      let translator;
+      try{translator=await self.Translator.create({sourceLanguage:'ja',targetLanguage:'en',monitor(m){m.addEventListener('downloadprogress',e=>progress(`Downloading translation model… ${Math.round(e.loaded*100)}%`));}});}catch(error){if(!allowDownload)throw error;}
+      if(translator){try{return await translator.translate(text);}finally{translator.destroy();}}
     }
   }
   if(!allowDownload)throw new Error('Enable the local model download below. It is free and can be around 110 MB of model weights, plus runtime files.');

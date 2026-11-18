@@ -1,15 +1,16 @@
 import {recogniseHandwriting} from './handwriting.mjs';
 import {readNotebook} from './onenote.mjs';
 const MAX=20*1024*1024, EXPANDED=80*1024*1024, TEXT_LIMIT=200000;
-const scripts=new Map();let pdfModule,ocrWorker;
+const scripts=new Map();let pdfModule,ocrWorker,ocrProgress;
 function script(url,global){
   if(window[global])return Promise.resolve(window[global]);
   if(!scripts.has(url))scripts.set(url,new Promise((resolve,reject)=>{const s=document.createElement('script');s.src=url;s.onload=()=>resolve(window[global]);s.onerror=()=>{scripts.delete(url);s.remove();reject(new Error('The document reader could not load. Check your internet connection or paste your text.'));};document.head.append(s);}));
   return scripts.get(url);
 }
 async function recognise(image,progress){
+  ocrProgress=progress;
   const T=await script('https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js','Tesseract');
-  if(!ocrWorker){try{ocrWorker=await T.createWorker('jpn+eng',1,{logger:m=>{if(m.status==='recognizing text')progress(`Recognising Japanese text… ${Math.round((m.progress||0)*100)}%`);}});}catch(e){ocrWorker=null;throw new Error('Text recognition could not start. Check your connection, or paste the Japanese text.');}}
+  if(!ocrWorker){try{ocrWorker=await T.createWorker('jpn+eng',1,{logger:m=>{if(m.status==='recognizing text')ocrProgress(`Recognising Japanese text… ${Math.round((m.progress||0)*100)}%`);}});}catch(e){ocrWorker=null;throw new Error('Text recognition could not start. Check your connection, or paste the Japanese text.');}}
   const result=await ocrWorker.recognize(image);return result.data.text;
 }
 export async function importFile(file,progress=()=>{},context={files:0,total:0},depth=0){
@@ -24,7 +25,8 @@ export async function importFile(file,progress=()=>{},context={files:0,total:0},
   else if(ext==='json'){
     const data=JSON.parse(await file.text());
     if(data.format!=='kotoba-club-v1'||typeof data.text!=='string')throw new Error('Use a Hedgehog’s Comet practice export.');
-    return {text:data.text.slice(0,TEXT_LIMIT),title:typeof data.name==='string'?data.name:'Imported practice',warnings:[],ratings:data.ratings&&typeof data.ratings==='object'?data.ratings:undefined};
+    if(data.text.length>TEXT_LIMIT)throw new Error('Use a smaller practice with up to 200,000 characters.');
+    return {text:data.text,title:typeof data.name==='string'?data.name:'Imported practice',warnings:[],ratings:data.ratings&&typeof data.ratings==='object'?data.ratings:undefined};
   }
   else if(['png','jpg','jpeg'].includes(ext)){
     const bmp=await createImageBitmap(file);
@@ -75,7 +77,7 @@ export async function importFile(file,progress=()=>{},context={files:0,total:0},
       text=pages.join('\n\n');
     }finally{await pdf.destroy();}
   }
-  else throw new Error('Choose ZIP, PNG, JPG, JPEG, MD, PDF, ONEPKG, DOCX or TXT.');
+  else throw new Error('Choose ZIP, PNG, JPG, JPEG, MD, PDF, ONEPKG, ONE, DOCX, TXT or a practice JSON export.');
   if(text.length>TEXT_LIMIT)throw new Error('Use a smaller section with fewer than 200,000 characters.');
   return {text,warnings};
 }

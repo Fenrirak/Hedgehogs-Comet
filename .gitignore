@@ -9,3 +9,5 @@ node_modules/
 *serviceAccount*.json
 kotoba-account-backup*.json
 kotoba-practice*.json
+hedgehogs-comet-backup*.json
+hedgehogs-comet-practice*.json
