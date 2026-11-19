@@ -99,13 +99,12 @@ function render(){
   $('previous').disabled=$('next').disabled=!items.length;
   $('reveal').classList.toggle('hidden',mode==='speech');updateHints();updatePlay();automaticHints();
 }
-function updateHints(){const visible=$('hints').checked;for(const id of ['reading'])$(id).classList.toggle('hint-hidden',!visible);$('meaning').classList.toggle('hint-hidden',!$('englishHints').checked);$('reveal').textContent=visible?'◉ Hide romaji':'◉ Show romaji';$('reveal').setAttribute('aria-pressed',String(visible));}
+function updateHints(){const visible=$('hints').checked;for(const id of ['reading'])$(id).classList.toggle('hint-hidden',!visible);$('meaning').classList.toggle('hint-hidden',!$('englishHints').checked);$('reveal').textContent=visible?'Hide romaji':'Show romaji';$('reveal').setAttribute('aria-pressed',String(visible));}
 function updatePlay(){
   if(feedbackState){
     $('play').textContent=feedbackState==='prompt'?'Waiting for rating':'Rating saved';
   }else{
-    const icon=node('span','',running?'Ⅱ':'▶');icon.setAttribute('aria-hidden','true');
-    $('play').replaceChildren(icon,document.createTextNode(running?'Pause':paused?'Continue listening':'Start listening'));
+    $('play').textContent=running?'Pause':paused?'Continue listening':'Start listening';
   }
   $('play').disabled=!voices.length||!items.length;$('play').setAttribute('aria-disabled',String(!!feedbackState||$('play').disabled));
   $('resetPractice').disabled=!items.length;
@@ -244,7 +243,7 @@ async function start(){
         ratings[ja]=reviewRating(ratings[ja],kind,turn,items.length);previewRatings[ja]=ratings[ja];
         renderWords();persist();
         const hadRatingFocus=$('flashcardFront').contains(document.activeElement);
-        $('ratingIcon').textContent=kind==='got'?'✓':'↺';
+        $('ratingIcon').classList.toggle('hidden',kind==='got');
         $('ratingDetail').textContent=kind==='got'?'Marked as familiar':'Marked to revisit';
         $('ratingTitle').textContent=kind==='got'?'Got it!':'Forgot';
         $('ratingStatus').textContent=$('ratingDetail').textContent+'.';
@@ -281,8 +280,8 @@ function renderWords(){
   const q=$('wordSearch').value.toLowerCase();const list=$('wordList');list.replaceChildren();
   items.forEach((item,i)=>{if(!`${item.ja} ${item.reading} ${item.meaning}`.toLowerCase().includes(q))return;
     const row=node('div','word-row'+(i===current?' current':''));const rating=ratings[item.ja]?.kind;
-    row.append(node('span','word-index',String(i+1).padStart(2,'0')),node('span','word-ja',item.ja),node('span','word-hint',$('hints').checked?item.reading:''),node('span','word-rating'+(rating==='forgot'?' forgot':''),rating==='got'?'✓ Familiar':rating==='forgot'?'↺ Revisiting':'New to you'));
-    row.querySelector('.word-ja').lang='ja';const b=node('button','word-play','▶');b.setAttribute('aria-label',`Listen to ${item.ja}`);b.onclick=()=>{
+    row.append(node('span','word-index',String(i+1).padStart(2,'0')),node('span','word-ja',item.ja),node('span','word-hint',$('hints').checked?item.reading:''),node('span','word-rating'+(rating==='forgot'?' forgot':''),rating==='got'?'Familiar':rating==='forgot'?'↺ Revisiting':'New to you'));
+    row.querySelector('.word-ja').lang='ja';const b=node('button','word-play','Listen');b.setAttribute('aria-label',`Listen to ${item.ja}`);b.onclick=()=>{
       stop();current=i;render();renderWords();
       $('practiceTurn').closest('.practice-card').scrollIntoView?.({block:'nearest'});
       $('play').focus({preventScroll:true});start();
